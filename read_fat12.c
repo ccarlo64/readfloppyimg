@@ -93,6 +93,7 @@ unsigned char fd;
 
 int n_file=1;
 int idxfile=0;
+char idxdump[10];
 char idxname[128];
 
 char search_file[]="12345678.123";
@@ -105,10 +106,11 @@ int main(int argc, char *argv[]) {
 
  	//if(argc==3)
  		//strcpy(search_file, argv[2]);
+	printf("\nRead FAT12 disk image ver. 0.1 / june 2022\n\n");
 
-
-	if(argc==3){
+	if(argc>2){
 		idxfile=atoi(argv[2]);
+		//strcpy(idxdump,argv[3]);
 		printf("\ndump for %d in dir \n",idxfile);
 	}
  	
@@ -138,14 +140,14 @@ int main(int argc, char *argv[]) {
 	memcpy(boot_record,all_file,512);
 	fclose(f); 
 
-	sector_total= GETW(boot_record[0].sector_total);
-	sector_reserved= GETW(boot_record[0].sector_reserved);
-	sector_for_cluster= GETB(boot_record[0].sector_for_cluster);
-	byte_for_sector= GETW(boot_record[0].byte_for_sector);
-	sector_for_fat= GETW( boot_record[0].sector_for_fat );
-	fat_number= GETB( boot_record[0].fat_number );
-	max_voice= GETW( boot_record[0].max_voice );
-	fd=GETB( boot_record[0].fd );
+	sector_total      = GETW( boot_record[0].sector_total);
+	sector_reserved   = GETW( boot_record[0].sector_reserved);
+	sector_for_cluster= GETB( boot_record[0].sector_for_cluster);
+	byte_for_sector   = GETW( boot_record[0].byte_for_sector);
+	sector_for_fat    = GETW( boot_record[0].sector_for_fat );
+	fat_number        = GETB( boot_record[0].fat_number );
+	max_voice         = GETW( boot_record[0].max_voice );
+	fd                = GETB( boot_record[0].fd );
 	
 	printf("\nBios parameters block");
 	printf("\n byte_for_sector       %u",byte_for_sector );
@@ -155,12 +157,25 @@ int main(int argc, char *argv[]) {
 	printf("\n max_voice             %u",max_voice );
 	printf("\n sector_total          %u",sector_total );
 	printf("\n fd                    %x",fd );
+	printf(" - ");
+	decode_fd( fd );
 	printf("\n sector_for_fat        %x",sector_for_fat );	
 	printf("\n check                 %x",GETW( boot_record[0].check ));	
 
 	if(GETW( boot_record[0].check )!=0xaa55){
 		printf("\nincorrect boot record");
-        exit(EXIT_FAILURE);
+		
+	sector_total      = 720;
+	sector_reserved   = 1;
+	sector_for_cluster= 1;
+	byte_for_sector   = 512;
+	sector_for_fat    = 2;
+	fat_number        = 2;
+	max_voice         = 128;//112;
+	fd                = 0xfd;
+		
+		
+//        exit(EXIT_FAILURE);
 	}
 
 	
@@ -218,14 +233,20 @@ int main(int argc, char *argv[]) {
 	int chain;
 	idx=100;//maxxxxx
 	first=foundit;
-	while(first!=0 && idx>0){
+	FILE *fout;
+	if(foundit>0) {
+	
+		fout = fopen(idxname, "wb");
+		printf("\nDUMP FILE %s",idxname);
+		printf("\nnow find the FAT chain, ");
+		chain=find_cluster(first,fat12);
+		printf("first value for %u = %u \n\n",first,chain);		
+	}
+	while(first!=0 && idx>0 && sizefile>0){
 		idx--;
 		chain=find_cluster(first,fat12);
 
-		printf("\nDUMP FILE %s",idxname);
 
-		printf("\nnow find the FAT chain, ");
-		printf("first value for %u = %u",first,chain);
 
 		first--;
 		first--;
@@ -234,20 +255,27 @@ int main(int argc, char *argv[]) {
 		first=	first * byte_for_sector;
 
 		//printf("\n%u %u\n",first, fat_number);
-		printf("\nsize:%u \n",sizefile);
+		//printf("\nsize:%u \n",sizefile);
 
-		while (sizefile>0) {
-			memcpy(recorda,all_file+first,byte_for_sector*sector_for_cluster   );
-			i=0;
-			while(sizefile>0 && i<(byte_for_sector*sector_for_cluster)){
-				printf("%c",*(recorda+i++));	
+
+
+		//while (sizefile>0) {
+			//memcpy(recorda,all_file+first,byte_for_sector*sector_for_cluster   );
+			int is=0;
+			while(sizefile>0 && is<(byte_for_sector*sector_for_cluster)){
+				//printf("%c",*(all_file+first+is));	
 				sizefile--;
+				unsigned char bu=*(all_file+first+is);
+				fwrite(&bu,1,1,fout);
+				is++;
 			}
-		}
+	//	}
 		if(chain==4095) break;
 		first=chain;
+		
 	}
-	
+	if(foundit>0)
+		fclose(fout);
 	
 	free(all_file);
 	free(recorda);
@@ -424,4 +452,54 @@ int find_cluster(int nc,unsigned char *fat12) {
 return c1;				
 
 
+}
+
+
+void decode_fd( unsigned char fd){
+	switch(fd) {
+		case 0xf0:
+			printf("2.88 MB 3.5-inch, 2-sided, 36-sector / 1.44 MB 3.5-inch, 2-sided, 18-sector");
+			break;
+		case 0xf9:
+			printf("720K 3.5-inch, 2-sided, 9-sector / 1.2 MB 5.25-inch, 2-sided, 15-sector");
+			break;
+		case 0xfd:
+			printf("360K 5.25-inch, 2-sided, 9-sector / 500K 8-inch, 2-sided, single-density");
+			break;
+		case 0xff:
+			printf("320K 5.25-inch, 2-sided, 8-sector");
+			break;
+		case 0xfc:
+			printf("180K 5.25-inch, 1-sided, 9-sector");
+			break;
+		case 0xfe:
+			printf("160K 5.25-inch, 1-sided, 8-sector / 250K 8-inch, 1-sided, single-density / 1.2 MB 8-inch, 2-sided, double-density");
+			break;
+		case 0xf8:
+			printf("Fixed disk");
+			break;
+
+
+
+
+		default:
+			printf("unknown");
+	}
+/*	
+	F0 2.88 MB 3.5-inch, 2-sided, 36-sector
+F0 1.44 MB 3.5-inch, 2-sided, 18-sector
+F9 720K 3.5-inch, 2-sided, 9-sector
+F9 1.2 MB 5.25-inch, 2-sided, 15-sector
+FD 360K 5.25-inch, 2-sided, 9-sector
+FF 320K 5.25-inch, 2-sided, 8-sector
+FC 180K 5.25-inch, 1-sided, 9-sector
+FE 160K 5.25-inch, 1-sided, 8-sector
+FE 250K 8-inch, 1-sided, single-density
+FD 500K 8-inch, 2-sided, single-density
+FE 1.2 MB 8-inch, 2-sided, double-density
+Fixed disk
+*/
+	
+	
+	
 }
